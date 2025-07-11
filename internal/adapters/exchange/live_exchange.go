@@ -22,6 +22,14 @@ type rawMarketData struct {
 	Timestamp int64   `json:"timestamp"`
 }
 
+func NewLiveExchange(id string, host string, port string) *LiveExchange {
+	return &LiveExchange{
+		ID:   id,
+		Host: host,
+		Port: port,
+	}
+}
+
 func (e *LiveExchange) Start() <-chan domain.MarketData {
 	e.outChan = make(chan domain.MarketData, 100)
 
@@ -68,6 +76,6 @@ func parseData(data string, exchangeID string) (domain.MarketData, error) {
 		Exchange:  exchangeID,
 		Pair:      raw.Symbol,
 		Price:     raw.Price,
-		Timestamp: time.Unix(0, raw.Timestamp*int64(time.Millisecond)),
+		Timestamp: raw.Timestamp,
 	}, nil
 }

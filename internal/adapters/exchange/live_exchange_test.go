@@ -42,12 +42,12 @@ func TestLiveExchange_ParsesValidData(t *testing.T) {
 		Exchange:  "test",
 		Pair:      "BTCUSDT",
 		Price:     123.45,
-		Timestamp: time.Now().UTC().Truncate(time.Second),
+		Timestamp: time.Now().UTC().Truncate(time.Second).Unix(),
 	}
 	jsonData, _ := json.Marshal(struct {
-		Symbol    string    `json:"symbol"`
-		Price     float64   `json:"price"`
-		Timestamp time.Time `json:"timestamp"`
+		Symbol    string  `json:"symbol"`
+		Price     float64 `json:"price"`
+		Timestamp int64   `json:"timestamp"`
 	}{
 		Symbol:    market.Pair,
 		Price:     market.Price,
@@ -63,7 +63,7 @@ func TestLiveExchange_ParsesValidData(t *testing.T) {
 
 	select {
 	case got := <-ch:
-		if got.Pair != market.Pair || got.Price != market.Price || !got.Timestamp.Equal(market.Timestamp) {
+		if got.Pair != market.Pair || got.Price != market.Price || got.Timestamp != market.Timestamp {
 			t.Errorf("unexpected market data: got %+v, want %+v", got, market)
 		}
 	case <-time.After(time.Second):

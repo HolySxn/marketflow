@@ -1,0 +1,7 @@
+{
+  "exchanges": [
+    { "id": "exchange1", "host": "127.0.0.1", "port": "40101" },
+    { "id": "exchange2", "host": "127.0.0.1", "port": "40102" },
+    { "id": "exchange3", "host": "127.0.0.1", "port": "40103" }
+  ]
+}
