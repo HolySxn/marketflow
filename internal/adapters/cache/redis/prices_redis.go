@@ -40,8 +40,8 @@ func (c *RCacher) AddPrice(ctx context.Context, data domain.MarketData) error {
 	return nil
 }
 
-func (c *RCacher) GetLastMinutePrices(ctx context.Context, exchange string, pair string) ([]float64, error) {
-	min := time.Now().Unix() - int64(time.Minute.Seconds())
+func (c *RCacher) GetPricesByPeriod(ctx context.Context, exchange string, pair string, period time.Duration) ([]float64, error) {
+	min := time.Now().Add(-period).Unix()
 	max := time.Now().Unix()
 	key := fmt.Sprintf("prices:%s:%s", exchange, pair)
 

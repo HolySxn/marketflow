@@ -46,6 +46,11 @@ func TestAddPrice(t *testing.T) {
 		t.Fatal("No data found in Redis")
 	}
 	t.Log(res)
+
+	// Cleanup
+	if err := rdb.Del(ctx, key).Err(); err != nil {
+		t.Fatalf("Failed to cleanup Redis: %v", err)
+	}
 }
 
 func TestGetLastMinutePrices(t *testing.T) {
@@ -64,6 +69,7 @@ func TestGetLastMinutePrices(t *testing.T) {
 
 	min := 100.0
 	max := 200.0
+	key := "prices:testex:BTCUSDT"
 
 	for i := 0; i < 10; i++ {
 		data := domain.MarketData{
@@ -80,12 +86,17 @@ func TestGetLastMinutePrices(t *testing.T) {
 		time.Sleep(time.Second)
 	}
 
-	prices, err := cacher.GetLastMinutePrices(ctx, "testex", "BTCUSDT")
+	prices, err := cacher.GetPricesByPeriod(ctx, "testex", "BTCUSDT", time.Minute)
 	if err != nil {
 		t.Fatalf("Failed to get all prices: %v", err)
 	}
 	if len(prices) != 10 {
-		t.Fatal("Wron amount of data")
+		t.Fatalf("Wrong amount of data: %d != 10", len(prices))
+	}
+
+	// Cleanup
+	if err := rdb.Del(ctx, key).Err(); err != nil {
+		t.Fatalf("Failed to cleanup Redis: %v", err)
 	}
 }
 
@@ -105,6 +116,7 @@ func TestGetLastMinutePricesMoreThanMinute(t *testing.T) {
 
 	min := 100.0
 	max := 200.0
+	key := "prices:testex:BTCUSDT"
 
 	for i := 0; i < 10; i++ {
 		timestamp := time.Now().Unix() - int64(time.Minute.Seconds()*2)
@@ -122,11 +134,16 @@ func TestGetLastMinutePricesMoreThanMinute(t *testing.T) {
 		time.Sleep(time.Second)
 	}
 
-	prices, err := cacher.GetLastMinutePrices(ctx, "testex", "BTCUSDT")
+	prices, err := cacher.GetPricesByPeriod(ctx, "testex", "BTCUSDT", time.Minute)
 	if err != nil {
 		t.Fatalf("Failed to get all prices: %v", err)
 	}
 	if len(prices) != 0 {
-		t.Fatal("Wron amount of data")
+		t.Fatalf("Wrong amount of data: %d != 0", len(prices))
+	}
+
+	// Cleanup
+	if err := rdb.Del(ctx, key).Err(); err != nil {
+		t.Fatalf("Failed to cleanup Redis: %v", err)
 	}
 }
