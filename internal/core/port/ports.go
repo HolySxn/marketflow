@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-type Cache interface {
+type CachePort interface {
 	AddPrice(ctx context.Context, data domain.MarketData) error
 	GetPricesByPeriod(ctx context.Context, exchange string, pair string, period time.Duration) ([]float64, error)
 	GetLatestPrice(ctx context.Context, exchange string, pair string) (domain.MarketData, error)
