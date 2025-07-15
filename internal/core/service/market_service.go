@@ -18,8 +18,11 @@ type MarketService struct {
 	cache      port.CachePort
 	repository port.RepositoryPort
 	exchanges  []port.ExchangePort
-	pool       *workerpool.WorkerPool
 	logger     *slog.Logger
+
+	// Worker pools for each exchange
+	workerPools []*workerpool.WorkerPool
+	//aggregator  *workerpool.FanInAggregator
 
 	// Data batching
 	batchMutex  sync.RWMutex
@@ -42,7 +45,6 @@ func NewMarketService(
 		cache:         cache,
 		repository:    repository,
 		exchanges:     exchanges,
-		pool:          workerpool.NewWorkerPool(15), // 3 exchanges * 5 workers each
 		logger:        logger,
 		batchData:     make(map[string][]domain.MarketData),
 		batchTicker:   time.NewTicker(1 * time.Minute),

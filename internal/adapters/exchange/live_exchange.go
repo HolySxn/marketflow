@@ -44,7 +44,7 @@ func NewLiveExchange(id string, host string, port string, logger *slog.Logger) *
 }
 
 func (e *LiveExchange) Start() <-chan domain.MarketData {
-	e.outChan = make(chan domain.MarketData, 100)
+	e.outChan = make(chan domain.MarketData, 1000)
 
 	e.wg.Add(1)
 	go func() {
@@ -54,6 +54,7 @@ func (e *LiveExchange) Start() <-chan domain.MarketData {
 		for {
 			select {
 			case <-e.ctx.Done():
+				e.logger.Info("Exchange stopped", slog.String("exchange", e.ID))
 				return
 			default:
 				e.connectAndRead()
@@ -65,8 +66,13 @@ func (e *LiveExchange) Start() <-chan domain.MarketData {
 }
 
 func (e *LiveExchange) Stop() {
+	e.logger.Info("Stopping exchange", slog.String("exchange", e.ID))
 	e.cancel()
 	e.wg.Wait()
+}
+
+func (e *LiveExchange) GetID() string {
+	return e.ID
 }
 
 func (e *LiveExchange) IsConnected() bool {
@@ -122,11 +128,28 @@ func (e *LiveExchange) readStream(conn net.Conn) {
 
 			select {
 			case e.outChan <- data:
+				e.logger.Debug("Market data sent to worker pool",
+					slog.String("exchange", e.ID),
+					slog.String("pair", data.Pair),
+					slog.Float64("price", data.Price))
 			case <-e.ctx.Done():
 				return
+			default:
+				// Channel is full, log and drop
+				e.logger.Warn("Output channel full, dropping market data",
+					slog.String("exchange", e.ID),
+					slog.String("pair", data.Pair))
+
 			}
 		}
 	}
+
+	if err := scanner.Err(); err != nil {
+		e.logger.Error("Scanner error",
+			slog.String("exchange", e.ID),
+			slog.Any("error", err))
+	}
+
 }
 
 func (e *LiveExchange) setConnected(connected bool) {
@@ -141,6 +164,14 @@ func parseData(data string, exchangeID string) (domain.MarketData, error) {
 	err := json.Unmarshal([]byte(data), &raw)
 	if err != nil {
 		return domain.MarketData{}, fmt.Errorf("json unmarshal error: %w", err)
+	}
+
+	if raw.Price <= 0 {
+		return domain.MarketData{}, fmt.Errorf("invalid price: %f", raw.Price)
+	}
+
+	if raw.Symbol == "" {
+		return domain.MarketData{}, fmt.Errorf("empty symbol")
 	}
 
 	return domain.MarketData{

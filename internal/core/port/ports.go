@@ -23,3 +23,16 @@ type ExchangePort interface {
 	Stop()
 	IsConnected() bool
 }
+
+// MarketServicePort defines market service operations
+type MarketServicePort interface {
+	Start()
+	Stop()
+	GetLatestPrice(ctx context.Context, exchange string, pair string) (domain.PriceResponse, error)
+	GetHighestPrice(ctx context.Context, exchange string, pair string, period time.Duration) (domain.PriceResponse, error)
+	GetLowestPrice(ctx context.Context, exchange string, pair string, period time.Duration) (domain.PriceResponse, error)
+	GetAveragePrice(ctx context.Context, exchange string, pair string, period time.Duration) (domain.PriceResponse, error)
+	SwitchToTestMode() error
+	SwitchToLiveMode() error
+	// GetHealthStatus() domain.HealthResponse
+}
