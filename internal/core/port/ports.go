@@ -9,13 +9,15 @@ import (
 type CachePort interface {
 	AddPrice(ctx context.Context, data domain.MarketData) error
 	GetPricesByPeriod(ctx context.Context, exchange string, pair string, period time.Duration) ([]float64, error)
-	GetLatestPrice(ctx context.Context, exchange string, pair string) (domain.MarketData, error)
+	GetLatestPrice(ctx context.Context, exchange string, pair string) (*domain.MarketData, error)
+	GetLatestPriceByPair(ctx context.Context, pair string) (*domain.MarketData, error)
 }
 
 type RepositoryPort interface {
 	SaveAggregate(ctx context.Context, data domain.AggregatedData) error
 	GetAggregatesByPeriod(ctx context.Context, exchange string, pair string, period time.Duration) ([]domain.AggregatedData, error)
-	GetLatestAggregate(ctx context.Context, exchange string, pair string) (domain.AggregatedData, error)
+	GetLatestAggregate(ctx context.Context, exchange string, pair string) (*domain.AggregatedData, error)
+	GetLatestAggregateByPair(ctx context.Context, pair string) (*domain.AggregatedData, error)
 }
 
 type ExchangePort interface {
@@ -34,5 +36,5 @@ type MarketServicePort interface {
 	GetAveragePrice(ctx context.Context, exchange string, pair string, period time.Duration) (domain.PriceResponse, error)
 	SwitchToTestMode() error
 	SwitchToLiveMode() error
-	// GetHealthStatus() domain.HealthResponse
+	GetHealthStatus() domain.HealthResponse
 }

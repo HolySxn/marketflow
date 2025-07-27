@@ -4,10 +4,13 @@ import (
 	"context"
 	"log/slog"
 	"marketflow/internal/core/domain"
+	"marketflow/internal/core/port"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 )
+
+var _ port.RepositoryPort = (*MarketRepository)(nil)
 
 type MarketRepository struct {
 	db     *pgxpool.Pool
@@ -80,7 +83,7 @@ func (r *MarketRepository) GetAggregatesByPeriod(ctx context.Context, exchange s
 	return results, nil
 }
 
-func (r *MarketRepository) GetLatestAggregate(ctx context.Context, exchange string, pair string) (domain.AggregatedData, error) {
+func (r *MarketRepository) GetLatestAggregate(ctx context.Context, exchange string, pair string) (*domain.AggregatedData, error) {
 	query := `
 		SELECT pair_name, exchange, timestamp, average_price, min_price, max_price
 		FROM market_aggregates
@@ -100,8 +103,34 @@ func (r *MarketRepository) GetLatestAggregate(ctx context.Context, exchange stri
 	)
 
 	if err != nil {
-		return domain.AggregatedData{}, err
+		return nil, err
 	}
 
-	return agg, nil
+	return &agg, nil
+}
+
+func (r *MarketRepository) GetLatestAggregateByPair(ctx context.Context, pair string) (*domain.AggregatedData, error) {
+	query := `
+		SELECT pair_name, exchange, timestamp, average_price, min_price, max_price
+		FROM market_aggregates
+		WHERE pair_name = $1
+		ORDER BY timestamp DESC
+		LIMIT 1
+	`
+
+	var agg domain.AggregatedData
+	err := r.db.QueryRow(ctx, query, pair).Scan(
+		&agg.Pair,
+		&agg.Exchange,
+		&agg.Timestamp,
+		&agg.Average,
+		&agg.Min,
+		&agg.Max,
+	)
+
+	if err != nil {
+		return nil, err
+	}
+
+	return &agg, nil
 }

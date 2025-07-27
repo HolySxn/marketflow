@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"marketflow/internal/core/domain"
 	"marketflow/internal/core/port"
@@ -102,4 +103,50 @@ func (s *MarketService) handleExchangeData(exchange port.ExchangePort, workerpoo
 			workerpool.SubmitJob(data)
 		}
 	}
+}
+
+func (s *MarketService) GetLatestPrice(ctx context.Context, exchange string, pair string) (domain.PriceResponse, error) {
+	var cachedPrice *domain.MarketData
+	var err error
+
+	if exchange != "" {
+		cachedPrice, err = s.cache.GetLatestPrice(ctx, exchange, pair)
+	} else {
+		cachedPrice, err = s.cache.GetLatestPriceByPair(ctx, pair)
+	}
+
+	if err != nil {
+		return domain.PriceResponse{}, err
+	}
+
+	if cachedPrice != nil {
+		return domain.PriceResponse{
+			Exchange:  cachedPrice.Exchange,
+			Pair:      cachedPrice.Pair,
+			Price:     cachedPrice.Price,
+			Timestamp: time.Unix(cachedPrice.Timestamp, 0),
+		}, nil
+	}
+
+	var aggPrice *domain.AggregatedData
+	if exchange != "" {
+		aggPrice, err = s.repository.GetLatestAggregate(ctx, exchange, pair)
+	} else {
+		aggPrice, err = s.repository.GetLatestAggregateByPair(ctx, pair)
+	}
+
+	if err != nil {
+		return domain.PriceResponse{}, err
+	}
+
+	if aggPrice != nil {
+		return domain.PriceResponse{
+			Exchange:  aggPrice.Exchange,
+			Pair:      aggPrice.Pair,
+			Price:     aggPrice.Average,
+			Timestamp: aggPrice.Timestamp,
+		}, nil
+	}
+
+	return domain.PriceResponse{}, fmt.Errorf("no price found for %s:%s", exchange, pair)
 }
