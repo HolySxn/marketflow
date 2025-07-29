@@ -1,0 +1,85 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    ports: 
+      - "8000:8000"
+    container_name: marketflow-app
+    env_file:
+      - ./.env
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      exchange1:
+        condition: service_started
+      exchange2:
+        condition: service_started
+      exchange3:
+        condition: service_started
+    networks:
+      - marketflow-network
+    
+  db:
+    image: postgres:17-bookworm
+    restart: always
+    container_name: marketflow_db
+    env_file:
+      - ./.env
+    environment:
+      TZ: Asia/Almaty
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+    networks:
+      - marketflow-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+  
+  redis:
+    image: redis:8-bookworm
+    restart: always
+    container_name: marketflow_redis
+    networks:
+      - marketflow-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+  
+  exchange1:
+    image: exchange1-arm64
+    container_name: exchange1
+    ports:
+      - "40101:40101"
+    networks:
+      - marketflow-network
+
+  exchange2:
+    image: exchange2-arm64
+    container_name: exchange2
+    ports:
+      - "40102:40102"
+    networks:
+      - marketflow-network
+
+  exchange3:
+    image: exchange3-arm64
+    container_name: exchange3
+    ports:
+      - "40103:40103"
+    networks:
+      - marketflow-network
+
+volumes:
+  pg-data:
+
+networks:
+  marketflow-network:
+    driver: bridge

@@ -3,7 +3,7 @@ package main
 import (
 	"context"
 	"log/slog"
-	"marketflow/config"
+	"marketflow/pkg/config"
 	"net"
 	"net/http"
 	"os"
