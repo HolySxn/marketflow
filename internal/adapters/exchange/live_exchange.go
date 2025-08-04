@@ -2,77 +2,65 @@ package exchange
 
 import (
 	"bufio"
-	"context"
 	"encoding/json"
-	"fmt"
+	"io"
 	"log/slog"
 	"marketflow/internal/core/domain"
+	"marketflow/internal/core/port"
 	"net"
 	"sync"
 	"time"
 )
 
+var _ port.ExchangePort = (*LiveExchange)(nil)
+
+const reconnectDelay = 5 * time.Second
+
 type LiveExchange struct {
-	ID        string
-	Host      string
-	Port      string
-	outChan   chan domain.MarketData
-	ctx       context.Context
-	cancel    context.CancelFunc
-	wg        sync.WaitGroup
+	ID       string
+	Host     string
+	Port     string
+	Logger   *slog.Logger
+	conn     net.Conn
+	dataChan chan domain.MarketData
+	stopChan chan struct{}
+
+	wg sync.WaitGroup
+	mu sync.RWMutex
+
 	connected bool
-	mu        sync.RWMutex
-	logger    *slog.Logger
 }
 
-type rawMarketData struct {
-	Symbol    string  `json:"symbol"`
-	Price     float64 `json:"price"`
-	Timestamp int64   `json:"timestamp"`
-}
-
-func NewLiveExchange(id string, host string, port string, logger *slog.Logger) *LiveExchange {
-	ctx, cancel := context.WithCancel(context.Background())
+func NewLiveExchange(id, host, port string, logger *slog.Logger) *LiveExchange {
 	return &LiveExchange{
-		ID:     id,
-		Host:   host,
-		Port:   port,
-		ctx:    ctx,
-		cancel: cancel,
-		logger: logger,
+		ID:       id,
+		Host:     host,
+		Port:     port,
+		Logger:   logger,
+		dataChan: make(chan domain.MarketData),
+		stopChan: make(chan struct{}),
 	}
 }
 
+// Start initiates the connection management loop and returns the data channel.
 func (e *LiveExchange) Start() <-chan domain.MarketData {
-	e.outChan = make(chan domain.MarketData, 1000)
-
 	e.wg.Add(1)
-	go func() {
-		defer e.wg.Done()
-		defer close(e.outChan)
-
-		for {
-			select {
-			case <-e.ctx.Done():
-				e.logger.Info("Exchange stopped", slog.String("exchange", e.ID))
-				return
-			default:
-				e.connectAndRead()
-			}
-		}
-	}()
-
-	return e.outChan
+	go e.manageConnection()
+	return e.dataChan
 }
 
+// Stop signals the connection management loop to terminate and closes the connection.
 func (e *LiveExchange) Stop() {
-	e.logger.Info("Stopping exchange", slog.String("exchange", e.ID))
-	e.cancel()
+	e.Logger.Info("stopping exchange adapter")
+	close(e.stopChan)
+	e.mu.Lock()
+	if e.conn != nil {
+		e.conn.Close()
+	}
+	e.mu.Unlock()
 	e.wg.Wait()
-}
-
-func (e *LiveExchange) GetID() string {
-	return e.ID
+	close(e.dataChan)
+	e.Logger.Info("exchange adapter is closed")
 }
 
 func (e *LiveExchange) IsConnected() bool {
@@ -81,103 +69,90 @@ func (e *LiveExchange) IsConnected() bool {
 	return e.connected
 }
 
-func (e *LiveExchange) connectAndRead() {
-	conn, err := net.Dial("tcp", net.JoinHostPort(e.Host, e.Port))
-	if err != nil {
-		e.setConnected(false)
-		e.logger.Error("failed to connect to exchange",
-			slog.String("exchange", e.ID),
-			slog.String("address", net.JoinHostPort(e.Host, e.Port)),
-			slog.Any("error", err))
-
-		select {
-		case <-e.ctx.Done():
-			return
-		case <-time.After(5 * time.Second):
-			// Retry connection
-		}
-		return
-	}
-
-	e.setConnected(true)
-	e.logger.Info("connected to exchange",
-		slog.String("exchange", e.ID),
-		slog.String("address", net.JoinHostPort(e.Host, e.Port)))
-
-	e.readStream(conn)
+func (e *LiveExchange) setConnected(status bool) {
+	e.mu.Lock()
+	e.connected = status
+	e.mu.Unlock()
 }
 
-func (e *LiveExchange) readStream(conn net.Conn) {
-	defer conn.Close()
-	defer e.setConnected(false)
+func (e *LiveExchange) manageConnection() {
+	defer e.wg.Done()
+	e.Logger.Info("starting connection manager")
 
-	scanner := bufio.NewScanner(conn)
-	for scanner.Scan() {
+	for {
 		select {
-		case <-e.ctx.Done():
+		case <-e.stopChan:
+			e.Logger.Info("shutting down connection manager")
 			return
 		default:
-			data, err := parseData(scanner.Text(), e.ID)
-			if err != nil {
-				e.logger.Error("parse error",
-					slog.String("exchange", e.ID),
-					slog.Any("error", err))
+			if !e.connected {
+				if err := e.connect(); err != nil {
+					e.Logger.Error("failed to connect", "error", err, "retry_in", reconnectDelay)
+					time.Sleep(reconnectDelay)
+					continue
+				}
+			}
 
+			err := e.readData()
+			e.setConnected(false)
+			if err != io.EOF {
+				e.Logger.Warn("connection lost", "error", err)
+			} else {
+				e.Logger.Info("connection closed by remote")
+			}
+		}
+	}
+}
+
+func (e *LiveExchange) connect() error {
+	e.Logger.Info("attempting to connect")
+	addr := net.JoinHostPort(e.Host, e.Port)
+
+	conn, err := net.DialTimeout("tcp", addr, 5*time.Second)
+	if err != nil {
+		return err
+	}
+
+	e.mu.Lock()
+	e.conn = conn
+	e.mu.Unlock()
+
+	e.setConnected(true)
+	e.Logger.Info("successfully connected")
+	return nil
+}
+
+func (e *LiveExchange) readData() error {
+	e.Logger.Info("starting to read data from connection")
+	reader := bufio.NewReader(e.conn)
+
+	for {
+		select {
+		case <-e.stopChan:
+			return nil
+		default:
+			e.conn.SetReadDeadline(time.Now().Add(10 * time.Second))
+			line, err := reader.ReadBytes('\n')
+			if err != nil {
+				if nerErr, ok := err.(net.Error); ok && nerErr.Timeout() {
+					e.Logger.Info("read timeout, will try again")
+					continue
+				}
+
+				e.Logger.Error("read error", "error", err)
+				e.conn.Close()
+				return err
+			}
+
+			var data domain.MarketData
+			if err := json.Unmarshal(line, &data); err != nil {
+				e.Logger.Warn("failed to unmarshal data", "data", string(line), "error", err)
 				continue
 			}
 
-			select {
-			case e.outChan <- data:
-				e.logger.Debug("Market data sent to worker pool",
-					slog.String("exchange", e.ID),
-					slog.String("pair", data.Pair),
-					slog.Float64("price", data.Price))
-			case <-e.ctx.Done():
-				return
-			default:
-				// Channel is full, log and drop
-				e.logger.Warn("Output channel full, dropping market data",
-					slog.String("exchange", e.ID),
-					slog.String("pair", data.Pair))
+			data.Exchange = e.ID
 
-			}
+			e.dataChan <- data
 		}
 	}
-
-	if err := scanner.Err(); err != nil {
-		e.logger.Error("Scanner error",
-			slog.String("exchange", e.ID),
-			slog.Any("error", err))
-	}
-
-}
-
-func (e *LiveExchange) setConnected(connected bool) {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	e.connected = connected
-}
-
-func parseData(data string, exchangeID string) (domain.MarketData, error) {
-	var raw rawMarketData
-
-	err := json.Unmarshal([]byte(data), &raw)
-	if err != nil {
-		return domain.MarketData{}, fmt.Errorf("json unmarshal error: %w", err)
-	}
-
-	if raw.Price <= 0 {
-		return domain.MarketData{}, fmt.Errorf("invalid price: %f", raw.Price)
-	}
-
-	if raw.Symbol == "" {
-		return domain.MarketData{}, fmt.Errorf("empty symbol")
-	}
-
-	return domain.MarketData{
-		Exchange:  exchangeID,
-		Pair:      raw.Symbol,
-		Price:     raw.Price,
-		Timestamp: raw.Timestamp,
-	}, nil
 }
