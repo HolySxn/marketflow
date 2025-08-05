@@ -23,7 +23,7 @@ func TestAddPrice(t *testing.T) {
 		t.Fatalf("Failed to PING Redis: %v", err)
 	}
 
-	cacher := NewRCacher(rdb, slog.Default())
+	cacher := NewRedisCache(rdb, slog.Default())
 
 	data := domain.MarketData{
 		Exchange:  "testex",
@@ -65,7 +65,7 @@ func TestGetLastMinutePrices(t *testing.T) {
 		t.Fatalf("Failed to PING Redis: %v", err)
 	}
 
-	cacher := NewRCacher(rdb, slog.Default())
+	cacher := NewRedisCache(rdb, slog.Default())
 
 	min := 100.0
 	max := 200.0
@@ -112,7 +112,7 @@ func TestGetLastMinutePricesMoreThanMinute(t *testing.T) {
 		t.Fatalf("Failed to PING Redis: %v", err)
 	}
 
-	cacher := NewRCacher(rdb, slog.Default())
+	cacher := NewRedisCache(rdb, slog.Default())
 
 	min := 100.0
 	max := 200.0
